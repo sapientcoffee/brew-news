@@ -5,8 +5,10 @@ import { getFeedUrls, saveFeedUrls } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Trash2, PlusCircle } from 'lucide-react';
+import { Loader2, Trash2, PlusCircle, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
+import { useAuth } from '@/hooks/use-auth';
+import { useRouter } from 'next/navigation';
 
 export default function AdminPage() {
   const [urls, setUrls] = useState<string[]>([]);
@@ -14,16 +16,28 @@ export default function AdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+  const auth = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!auth.loading && !auth.user) {
+      router.push('/login');
+    }
+  }, [auth.loading, auth.user, router]);
 
   useEffect(() => {
     async function loadUrls() {
-      setIsLoading(true);
-      const fetchedUrls = await getFeedUrls();
-      setUrls(fetchedUrls);
-      setIsLoading(false);
+      if (auth.role === 'admin') {
+        setIsLoading(true);
+        const fetchedUrls = await getFeedUrls();
+        setUrls(fetchedUrls);
+        setIsLoading(false);
+      }
     }
-    loadUrls();
-  }, []);
+    if (!auth.loading && auth.user) {
+        loadUrls();
+    }
+  }, [auth.loading, auth.user, auth.role]);
 
   const handleAddUrl = async (e: FormEvent) => {
     e.preventDefault();
@@ -78,6 +92,27 @@ export default function AdminPage() {
     }
     setIsSaving(false);
   };
+
+  if (auth.loading || !auth.user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (auth.role !== 'admin') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen text-center bg-background">
+        <ShieldAlert className="h-16 w-16 text-destructive mb-4" />
+        <h1 className="text-3xl font-bold">Access Denied</h1>
+        <p className="text-muted-foreground mt-2">You do not have permission to view this page.</p>
+        <Button asChild variant="link" className="mt-4">
+          <Link href="/">Back to Home</Link>
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground font-body">

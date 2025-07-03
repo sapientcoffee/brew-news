@@ -1,19 +1,24 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { fetchRssFeed, type RssItem, getFeedUrls, getStoredFeedItems, storeFeedItems } from './actions';
 import { differenceInDays } from 'date-fns';
-import { Rss, Loader2, AlertCircle, Settings, RefreshCw } from 'lucide-react';
+import { Rss, Loader2, AlertCircle, Settings, RefreshCw, LogOut } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
 import Link from 'next/link';
+import { useAuth } from '@/hooks/use-auth';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
   const [items, setItems] = useState<RssItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasUrls, setHasUrls] = useState(false);
+
+  const auth = useAuth();
+  const router = useRouter();
 
   const loadFeeds = useCallback(async (fromCache: boolean) => {
     setIsLoading(true);
@@ -81,12 +86,19 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // On initial load, try to load from the database first.
-    loadFeeds(true);
-  }, [loadFeeds]);
+    if (!auth.loading && !auth.user) {
+      router.push('/login');
+    }
+  }, [auth.loading, auth.user, router]);
+  
+  useEffect(() => {
+    if (auth.user) {
+        loadFeeds(true);
+    }
+  }, [auth.user, loadFeeds]);
 
 
-  const { thisWeekItems, lastWeekItems } = useMemo(() => {
+  const { thisWeekItems, lastWeekItems } = (() => {
     const now = new Date();
     const thisWeek: RssItem[] = [];
     const lastWeek: RssItem[] = [];
@@ -114,7 +126,15 @@ export default function Home() {
     lastWeek.sort(sortByDate);
 
     return { thisWeekItems: thisWeek, lastWeekItems: lastWeek };
-  }, [items]);
+  })();
+
+  if (auth.loading || !auth.user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground font-body">
@@ -136,11 +156,17 @@ export default function Home() {
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh Feeds
               </Button>
-              <Button asChild variant="outline">
-                <Link href="/admin">
-                  <Settings className="mr-2" />
-                  Manage Feeds
-                </Link>
+              {auth.role === 'admin' && (
+                <Button asChild variant="outline">
+                  <Link href="/admin">
+                    <Settings className="mr-2" />
+                    Manage Feeds
+                  </Link>
+                </Button>
+              )}
+               <Button variant="ghost" onClick={auth.signOut}>
+                <LogOut className="mr-2" />
+                Sign Out
               </Button>
             </div>
         </header>
@@ -186,7 +212,7 @@ export default function Home() {
                 <p className="text-muted-foreground">No new updates from the last two weeks.</p>
                </div>
             )}
-             {!isLoading && !hasUrls && (
+             {!isLoading && !hasUrls && auth.role === 'admin' && (
                <div className="text-center py-10 border border-dashed rounded-lg">
                 <h3 className="text-lg font-semibold text-primary">Welcome to Brew News!</h3>
                 <p className="text-muted-foreground mt-2 mb-4">You haven't added any RSS feeds yet.</p>
