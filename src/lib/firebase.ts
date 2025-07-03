@@ -26,8 +26,8 @@ if (firebaseConfig.projectId) {
       try {
         // These will throw errors if the emulators are already connected during hot-reloads.
         // We can safely ignore these errors.
-        connectAuthEmulator(auth, 'http://127.0.0.1:9099');
-        connectFirestoreEmulator(db, '127.0.0.1', 8080);
+        connectAuthEmulator(auth, 'http://localhost:9099');
+        connectFirestoreEmulator(db, 'localhost', 8080);
       } catch (error: any) {
         const knownErrors = ['failed-precondition', 'auth/emulator-config-failed'];
         if (!knownErrors.includes(error.code)) {
