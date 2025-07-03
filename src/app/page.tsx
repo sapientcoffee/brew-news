@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { fetchRssFeed, type RssItem } from './actions';
 import { differenceInDays } from 'date-fns';
@@ -10,39 +10,55 @@ import { Rss, Loader2, AlertCircle } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
 
 export default function Home() {
-  const [url, setUrl] = useState('https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml');
+  const [urls, setUrls] = useState('https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml');
   const [items, setItems] = useState<RssItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFetch = useCallback(async (feedUrl: string) => {
+  const handleFetch = useCallback(async (feeds: string) => {
     setIsLoading(true);
     setError(null);
     setItems([]);
 
-    if (!feedUrl) {
-      setError("Please enter an RSS feed URL.");
+    const feedUrls = feeds.split('\n').map(url => url.trim()).filter(Boolean);
+
+    if (feedUrls.length === 0) {
+      setError("Please enter at least one RSS feed URL.");
       setIsLoading(false);
       return;
     }
 
-    const { data, error: fetchError } = await fetchRssFeed(feedUrl);
+    const results = await Promise.all(feedUrls.map(url => fetchRssFeed(url)));
+    
+    const allItems: RssItem[] = [];
+    const allErrors: string[] = [];
 
-    if (fetchError) {
-      setError(fetchError);
-    } else if (data) {
-      setItems(data);
+    results.forEach((result, index) => {
+      if (result.data) {
+        allItems.push(...result.data);
+      }
+      if (result.error) {
+        allErrors.push(`Feed "${feedUrls[index]}": ${result.error}`);
+      }
+    });
+    
+    if (allErrors.length > 0) {
+      setError(allErrors.join('\n'));
     }
+    
+    setItems(allItems);
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
-    handleFetch(url);
-  }, [handleFetch, url]);
+    // Fetch initial URL on mount
+    handleFetch(urls);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleFetch]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    handleFetch(url);
+    handleFetch(urls);
   };
 
   const { thisWeekItems, lastWeekItems } = useMemo(() => {
@@ -86,22 +102,21 @@ export default function Home() {
             </h1>
           </div>
           <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
-            Your daily brew of release notes. Enter an RSS feed URL to get the latest updates.
+            Your daily brew of release notes. Enter one or more RSS feed URLs to get the latest updates.
           </p>
         </header>
 
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto mb-12">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              type="url"
-              placeholder="Enter RSS feed URL..."
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="flex-grow bg-card/80 border-primary/30 focus:border-accent focus:ring-accent"
+          <div className="grid w-full gap-4">
+            <Textarea
+              placeholder="Enter one or more RSS feed URLs, one per line..."
+              value={urls}
+              onChange={(e) => setUrls(e.target.value)}
+              className="flex-grow bg-card/80 border-primary/30 focus:border-accent focus:ring-accent min-h-[100px]"
               disabled={isLoading}
-              aria-label="RSS Feed URL"
+              aria-label="RSS Feed URLs"
             />
-            <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isLoading}>
+            <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground justify-self-end" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -125,7 +140,7 @@ export default function Home() {
           <Alert variant="destructive" className="max-w-2xl mx-auto">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription className="whitespace-pre-wrap">{error}</AlertDescription>
           </Alert>
         )}
 
