@@ -15,7 +15,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [hasUrls, setHasUrls] = useState(false);
 
-  const handleRefresh = useCallback(async () => {
+  const loadFeeds = useCallback(async (useCache: boolean) => {
     setIsLoading(true);
     setError(null);
     
@@ -28,6 +28,19 @@ export default function Home() {
       return;
     }
 
+    if (useCache) {
+      const { data: cachedItems, error: cacheError } = await getCachedFeedItems();
+      if (cacheError) {
+        setError(cacheError);
+      }
+      if (cachedItems && cachedItems.length > 0) {
+        setItems(cachedItems);
+        setIsLoading(false);
+        return; // Exit if we successfully loaded from cache
+      }
+    }
+
+    // If not using cache, or if cache was empty, fetch fresh data from all feeds.
     const results = await Promise.all(feedUrls.map(url => fetchRssFeed(url)));
     
     const allItems: RssItem[] = [];
@@ -46,10 +59,9 @@ export default function Home() {
       setError(allErrors.join('\n'));
     }
 
-    // Set UI with all fresh items
+    // Set UI with all fresh items, and then update the cache
     setItems(allItems);
 
-    // Filter and cache recent items (last 14 days)
     const now = new Date();
     const itemsToCache = allItems.filter(item => {
       if (!item.pubDate) return false;
@@ -69,34 +81,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    async function loadInitialItems() {
-      setIsLoading(true);
-      setError(null);
-      const feedUrls = await getFeedUrls();
-      setHasUrls(feedUrls.length > 0);
-
-      if (feedUrls.length === 0) {
-        setIsLoading(false);
-        return;
-      }
-
-      const { data: cachedItems, error: cacheError } = await getCachedFeedItems();
-
-      if (cacheError) {
-        setError(cacheError);
-      }
-      
-      if (cachedItems && cachedItems.length > 0) {
-        setItems(cachedItems);
-        setIsLoading(false);
-      } else {
-        // If cache is empty, perform a fresh fetch
-        await handleRefresh();
-      }
-    }
-    
-    loadInitialItems();
-  }, [handleRefresh]);
+    // On initial load, try to load from cache first.
+    loadFeeds(true);
+  }, [loadFeeds]);
 
 
   const { thisWeekItems, lastWeekItems } = useMemo(() => {
@@ -145,7 +132,7 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => handleRefresh()} disabled={isLoading}>
+              <Button variant="outline" onClick={() => loadFeeds(false)} disabled={isLoading}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh Feeds
               </Button>
