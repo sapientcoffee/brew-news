@@ -117,9 +117,11 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
   }
 }
 
-const urlsDocRef = doc(db, 'feeds', 'default');
-
 export async function getFeedUrls(): Promise<string[]> {
+  if (!db) {
+    return ['https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml'];
+  }
+  const urlsDocRef = doc(db, 'feeds', 'default');
   try {
     const docSnap = await getDoc(urlsDocRef);
     if (docSnap.exists()) {
@@ -137,6 +139,10 @@ export async function getFeedUrls(): Promise<string[]> {
 }
 
 export async function saveFeedUrls(urls: string[]): Promise<{success: boolean, error?: string}> {
+  if (!db) {
+    return { success: false, error: "Firestore is not configured. Please add your Firebase credentials to the .env file." };
+  }
+  const urlsDocRef = doc(db, 'feeds', 'default');
   try {
     await setDoc(urlsDocRef, { urls });
     return { success: true };
@@ -147,6 +153,11 @@ export async function saveFeedUrls(urls: string[]): Promise<{success: boolean, e
 }
 
 export async function getStoredFeedItems(): Promise<{ data?: RssItem[]; error?: string }> {
+  if (!db) {
+    // If firestore is not configured, return empty data.
+    // The app will then proceed to fetch live data.
+    return { data: [] };
+  }
   try {
     const itemsCollection = collection(db, 'feedItems');
     const snapshot = await getDocs(itemsCollection);
@@ -157,11 +168,16 @@ export async function getStoredFeedItems(): Promise<{ data?: RssItem[]; error?: 
     return { data: items };
   } catch (error) {
     console.error("Error fetching stored items from Firestore:", error);
-    return { error: "Could not retrieve stored feed items." };
+    return { error: "Could not retrieve stored feed items. Please check your Firestore security rules." };
   }
 }
 
 export async function storeFeedItems(items: RssItem[]): Promise<{success: boolean, error?: string}> {
+  if (!db) {
+    // Silently fail if firestore is not configured.
+    // This allows the app to function without persistence.
+    return { success: true };
+  }
   const itemsCollection = collection(db, 'feedItems');
   try {
     // Clear the existing items
