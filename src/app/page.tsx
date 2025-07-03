@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { fetchRssFeed, type RssItem, getFeedUrls } from './actions';
 import { differenceInDays } from 'date-fns';
-import { Rss, Loader2, AlertCircle, Settings } from 'lucide-react';
+import { Rss, Loader2, AlertCircle, Settings, RefreshCw } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
 import Link from 'next/link';
 
@@ -99,12 +99,18 @@ export default function Home() {
                 Your daily brew of release notes from your favorite feeds.
               </p>
             </div>
-            <Button asChild variant="outline">
-              <Link href="/admin">
-                <Settings className="mr-2" />
-                Manage Feeds
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => handleFetch()} disabled={isLoading}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh Feeds
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/admin">
+                  <Settings className="mr-2" />
+                  Manage Feeds
+                </Link>
+              </Button>
+            </div>
         </header>
 
 
