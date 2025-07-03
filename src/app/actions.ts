@@ -119,7 +119,8 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
 
 export async function getFeedUrls(): Promise<string[]> {
   if (!db) {
-    return ['https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml'];
+    // If Firestore isn't configured, there are no URLs.
+    return [];
   }
   const urlsDocRef = doc(db, 'feeds', 'default');
   try {
@@ -129,12 +130,12 @@ export async function getFeedUrls(): Promise<string[]> {
       // Ensure it returns an array, even if it's empty
       return Array.isArray(data.urls) ? data.urls : [];
     }
-    // If the document doesn't exist, return a default.
-    return ['https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml'];
+    // If the document doesn't exist, there are no URLs.
+    return [];
   } catch (error) {
     console.error("Error fetching URLs from Firestore:", error);
-    // Return default or empty array on error
-    return ['https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml'];
+    // Return empty array on error
+    return [];
   }
 }
 
