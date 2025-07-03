@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { fetchRssFeed, type RssItem, getFeedUrls } from './actions';
+import { fetchRssFeed, type RssItem, getFeedUrls, getCachedFeedItems, cacheFeedItems } from './actions';
 import { differenceInDays } from 'date-fns';
 import { Rss, Loader2, AlertCircle, Settings, RefreshCw } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
@@ -15,15 +15,15 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [hasUrls, setHasUrls] = useState(false);
 
-  const handleFetch = useCallback(async () => {
+  const handleRefresh = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    setItems([]);
-
+    
     const feedUrls = await getFeedUrls();
     setHasUrls(feedUrls.length > 0);
 
     if (feedUrls.length === 0) {
+      setItems([]);
       setIsLoading(false);
       return;
     }
@@ -45,14 +45,59 @@ export default function Home() {
     if (allErrors.length > 0) {
       setError(allErrors.join('\n'));
     }
-    
+
+    // Set UI with all fresh items
     setItems(allItems);
+
+    // Filter and cache recent items (last 14 days)
+    const now = new Date();
+    const itemsToCache = allItems.filter(item => {
+      if (!item.pubDate) return false;
+      try {
+        const itemDate = new Date(item.pubDate);
+        if (isNaN(itemDate.getTime())) return false;
+        const daysAgo = differenceInDays(now, itemDate);
+        return daysAgo >= 0 && daysAgo <= 14;
+      } catch (e) {
+        return false;
+      }
+    });
+    
+    await cacheFeedItems(itemsToCache);
+
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
-    handleFetch();
-  }, [handleFetch]);
+    async function loadInitialItems() {
+      setIsLoading(true);
+      setError(null);
+      const feedUrls = await getFeedUrls();
+      setHasUrls(feedUrls.length > 0);
+
+      if (feedUrls.length === 0) {
+        setIsLoading(false);
+        return;
+      }
+
+      const { data: cachedItems, error: cacheError } = await getCachedFeedItems();
+
+      if (cacheError) {
+        setError(cacheError);
+      }
+      
+      if (cachedItems && cachedItems.length > 0) {
+        setItems(cachedItems);
+        setIsLoading(false);
+      } else {
+        // If cache is empty, perform a fresh fetch
+        await handleRefresh();
+      }
+    }
+    
+    loadInitialItems();
+  }, [handleRefresh]);
+
 
   const { thisWeekItems, lastWeekItems } = useMemo(() => {
     const now = new Date();
@@ -100,7 +145,7 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => handleFetch()} disabled={isLoading}>
+              <Button variant="outline" onClick={() => handleRefresh()} disabled={isLoading}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh Feeds
               </Button>

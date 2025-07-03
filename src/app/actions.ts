@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import { summarizeReleaseNote } from '@/ai/flows/summarize-release-notes-flow';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 
 export interface RssItem {
   title: string;
@@ -152,5 +152,46 @@ export async function saveFeedUrls(urls: string[]): Promise<{success: boolean, e
   } catch (error) {
     console.error("Error saving URLs to Firestore:", error);
     return { success: false, error: "Could not save URLs. Please check your Firestore security rules and Firebase config." };
+  }
+}
+
+export async function getCachedFeedItems(): Promise<{ data?: RssItem[]; error?: string }> {
+  try {
+    const itemsCollection = collection(db, 'feedItems');
+    const snapshot = await getDocs(itemsCollection);
+    if (snapshot.empty) {
+      return { data: [] };
+    }
+    const items: RssItem[] = snapshot.docs.map(doc => doc.data() as RssItem);
+    return { data: items };
+  } catch (error) {
+    console.error("Error fetching cached items from Firestore:", error);
+    return { error: "Could not retrieve cached feed items." };
+  }
+}
+
+export async function cacheFeedItems(items: RssItem[]): Promise<{success: boolean, error?: string}> {
+  const itemsCollection = collection(db, 'feedItems');
+  try {
+    // Clear the existing cache
+    const oldDocsSnapshot = await getDocs(itemsCollection);
+    const deleteBatch = writeBatch(db);
+    oldDocsSnapshot.docs.forEach(doc => deleteBatch.delete(doc.ref));
+    await deleteBatch.commit();
+    
+    // Write the new items
+    const addBatch = writeBatch(db);
+    items.forEach(item => {
+      // Use a URL-safe base64 encoding of the link as the document ID
+      const docId = Buffer.from(item.link).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      const docRef = doc(itemsCollection, docId);
+      addBatch.set(docRef, item);
+    });
+    await addBatch.commit();
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error caching items to Firestore:", error);
+    return { success: false, error: "Could not save items to cache." };
   }
 }
