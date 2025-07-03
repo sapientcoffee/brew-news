@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { fetchRssFeed, type RssItem, getFeedUrls, getCachedFeedItems, cacheFeedItems } from './actions';
+import { fetchRssFeed, type RssItem, getFeedUrls, getStoredFeedItems, storeFeedItems } from './actions';
 import { differenceInDays } from 'date-fns';
 import { Rss, Loader2, AlertCircle, Settings, RefreshCw } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
@@ -15,7 +15,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [hasUrls, setHasUrls] = useState(false);
 
-  const loadFeeds = useCallback(async (useCache: boolean) => {
+  const loadFeeds = useCallback(async (fromCache: boolean) => {
     setIsLoading(true);
     setError(null);
     
@@ -28,19 +28,19 @@ export default function Home() {
       return;
     }
 
-    if (useCache) {
-      const { data: cachedItems, error: cacheError } = await getCachedFeedItems();
-      if (cacheError) {
-        setError(cacheError);
+    if (fromCache) {
+      const { data: storedItems, error: storeError } = await getStoredFeedItems();
+      if (storeError) {
+        setError(storeError);
       }
-      if (cachedItems && cachedItems.length > 0) {
-        setItems(cachedItems);
+      if (storedItems && storedItems.length > 0) {
+        setItems(storedItems);
         setIsLoading(false);
-        return; // Exit if we successfully loaded from cache
+        return; // Exit if we successfully loaded from the database
       }
     }
 
-    // If not using cache, or if cache was empty, fetch fresh data from all feeds.
+    // If not loading from the database, or if the database was empty, fetch fresh data from all feeds.
     const results = await Promise.all(feedUrls.map(url => fetchRssFeed(url)));
     
     const allItems: RssItem[] = [];
@@ -59,11 +59,11 @@ export default function Home() {
       setError(allErrors.join('\n'));
     }
 
-    // Set UI with all fresh items, and then update the cache
+    // Set UI with all fresh items, and then update the database
     setItems(allItems);
 
     const now = new Date();
-    const itemsToCache = allItems.filter(item => {
+    const itemsToStore = allItems.filter(item => {
       if (!item.pubDate) return false;
       try {
         const itemDate = new Date(item.pubDate);
@@ -75,13 +75,13 @@ export default function Home() {
       }
     });
     
-    await cacheFeedItems(itemsToCache);
+    await storeFeedItems(itemsToStore);
 
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
-    // On initial load, try to load from cache first.
+    // On initial load, try to load from the database first.
     loadFeeds(true);
   }, [loadFeeds]);
 

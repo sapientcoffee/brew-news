@@ -146,7 +146,7 @@ export async function saveFeedUrls(urls: string[]): Promise<{success: boolean, e
   }
 }
 
-export async function getCachedFeedItems(): Promise<{ data?: RssItem[]; error?: string }> {
+export async function getStoredFeedItems(): Promise<{ data?: RssItem[]; error?: string }> {
   try {
     const itemsCollection = collection(db, 'feedItems');
     const snapshot = await getDocs(itemsCollection);
@@ -156,15 +156,15 @@ export async function getCachedFeedItems(): Promise<{ data?: RssItem[]; error?: 
     const items: RssItem[] = snapshot.docs.map(doc => doc.data() as RssItem);
     return { data: items };
   } catch (error) {
-    console.error("Error fetching cached items from Firestore:", error);
-    return { error: "Could not retrieve cached feed items." };
+    console.error("Error fetching stored items from Firestore:", error);
+    return { error: "Could not retrieve stored feed items." };
   }
 }
 
-export async function cacheFeedItems(items: RssItem[]): Promise<{success: boolean, error?: string}> {
+export async function storeFeedItems(items: RssItem[]): Promise<{success: boolean, error?: string}> {
   const itemsCollection = collection(db, 'feedItems');
   try {
-    // Clear the existing cache
+    // Clear the existing items
     const oldDocsSnapshot = await getDocs(itemsCollection);
     const deleteBatch = writeBatch(db);
     oldDocsSnapshot.docs.forEach(doc => deleteBatch.delete(doc.ref));
@@ -182,7 +182,7 @@ export async function cacheFeedItems(items: RssItem[]): Promise<{success: boolea
 
     return { success: true };
   } catch (error) {
-    console.error("Error caching items to Firestore:", error);
-    return { success: false, error: "Could not save items to cache." };
+    console.error("Error storing items to Firestore:", error);
+    return { success: false, error: "Could not save items to the database." };
   }
 }
