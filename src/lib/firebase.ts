@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getFirestore, connectFirestoreEmulator, type Firestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, type Firestore } from "firebase/firestore";
 import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -19,19 +19,40 @@ let auth: Auth | null = null;
 if (firebaseConfig.projectId) {
   try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    db = getFirestore(app);
     auth = getAuth(app);
 
+    // Initialize Firestore. We need to do this differently for dev vs. prod
+    // to support the emulator's proxied URL in Firebase Studio.
+    try {
+        if (process.env.NODE_ENV === 'development') {
+            const firestoreHost = "8080-firebase-new-prototype-1751567115953.cluster-2xfkbshw5rfguuk5qupw267afs.cloudworkstations.dev";
+            // Use initializeFirestore to connect to the emulator with a custom URL.
+            // connectFirestoreEmulator is not suitable for this.
+            db = initializeFirestore(app, {
+                host: firestoreHost,
+                ssl: true,
+                experimentalForceLongPolling: true,
+            });
+        } else {
+            db = getFirestore(app);
+        }
+    } catch(e: any) {
+        // This can happen on hot-reload if firestore is already initialized.
+        if (e.code === 'failed-precondition' || e.code === 'invalid-argument') {
+            db = getFirestore(app);
+        } else {
+            throw e;
+        }
+    }
+    
+    // Connect Auth emulator in dev mode
     if (process.env.NODE_ENV === 'development') {
       try {
-        // These will throw 'failed-precondition' errors on hot-reloads if already connected.
-        // We can safely ignore these. The connection will persist.
         connectAuthEmulator(auth, 'https://9099-firebase-new-prototype-1751567115953.cluster-2xfkbshw5rfguuk5qupw267afs.cloudworkstations.dev');
-        connectFirestoreEmulator(db, 'localhost', 8080);
       } catch (error: any) {
         // Ignore the 'failed-precondition' error which is thrown when the emulators are already running.
         if (error.code !== 'failed-precondition') {
-          console.error("Error connecting to Firebase emulators:", error);
+          console.error("Error connecting to Auth emulator:", error);
         }
       }
     }
