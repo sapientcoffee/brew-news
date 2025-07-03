@@ -27,7 +27,7 @@ if (firebaseConfig.projectId) {
         // These will throw 'failed-precondition' errors on hot-reloads if already connected.
         // We can safely ignore these. The connection will persist.
         connectAuthEmulator(auth, 'https://9099-firebase-new-prototype-1751567115953.cluster-2xfkbshw5rfguuk5qupw267afs.cloudworkstations.dev');
-        connectFirestoreEmulator(db, '127.0.0.1', 8080);
+        connectFirestoreEmulator(db, 'localhost', 8080);
       } catch (error: any) {
         // Ignore the 'failed-precondition' error which is thrown when the emulators are already running.
         if (error.code !== 'failed-precondition') {
