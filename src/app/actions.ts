@@ -1,12 +1,14 @@
 'use server';
 
 import { z } from 'zod';
+import { summarizeReleaseNote } from '@/ai/flows/summarize-release-notes-flow';
 
 export interface RssItem {
   title: string;
   link: string;
   description: string;
   pubDate: string;
+  summary?: string[];
 }
 
 const urlSchema = z.string().url({ message: 'Please enter a valid URL.' });
@@ -95,6 +97,22 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
         };
       })
       .filter(item => item.title && item.link && item.link !== '#');
+
+    const summaryPromises = items.map(item =>
+        summarizeReleaseNote({ htmlContent: item.description })
+            .then(result => {
+                if (result && result.summary) {
+                    item.summary = result.summary;
+                }
+            })
+            .catch(err => {
+                console.error(`Could not summarize item: ${item.title}`, err);
+                const stripped = item.description.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+                item.summary = [stripped.length > 250 ? stripped.substring(0, 250) + '...' : stripped];
+            })
+    );
+
+    await Promise.all(summaryPromises);
 
     return { data: items };
   } catch (err) {

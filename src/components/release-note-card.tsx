@@ -22,6 +22,8 @@ export function ReleaseNoteCard({ item }: ReleaseNoteCardProps) {
     // Invalid date format, leave as null
   }
 
+  const hasSummary = item.summary && item.summary.length > 0 && item.summary.join('').trim() !== '';
+
   return (
     <Card className="flex flex-col h-full bg-card/80 backdrop-blur-sm border-primary/20 hover:border-accent/40 transition-all duration-300 shadow-md hover:shadow-lg hover:-translate-y-1">
       <CardHeader>
@@ -33,10 +35,18 @@ export function ReleaseNoteCard({ item }: ReleaseNoteCardProps) {
         )}
       </CardHeader>
       <CardContent className="flex-grow">
-        <div
-          className="description-truncate text-sm text-foreground/80"
-          dangerouslySetInnerHTML={{ __html: item.description }}
-        />
+        {hasSummary ? (
+          <ul className="space-y-2 text-sm text-foreground/80 list-disc pl-4">
+            {item.summary!.map((point, index) => (
+              <li key={index}>{point}</li>
+            ))}
+          </ul>
+        ) : (
+          <div
+            className="description-truncate text-sm text-foreground/80"
+            dangerouslySetInnerHTML={{ __html: item.description }}
+          />
+        )}
       </CardContent>
       <CardFooter>
         <Button asChild variant="link" className="text-accent hover:text-accent/80 p-0 h-auto">
