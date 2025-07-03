@@ -2,6 +2,8 @@
 
 import { z } from 'zod';
 import { summarizeReleaseNote } from '@/ai/flows/summarize-release-notes-flow';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export interface RssItem {
   title: string;
@@ -121,5 +123,34 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
         return { error: 'Network error or invalid domain. Please check the URL and your connection.'};
     }
     return { error: 'An unexpected error occurred while processing the feed. It may not be a valid RSS or Atom format.' };
+  }
+}
+
+const urlsDocRef = doc(db, 'feeds', 'default');
+
+export async function getFeedUrls(): Promise<string[]> {
+  try {
+    const docSnap = await getDoc(urlsDocRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      // Ensure it returns an array, even if it's empty
+      return Array.isArray(data.urls) ? data.urls : [];
+    }
+    // If the document doesn't exist, return a default.
+    return ['https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml'];
+  } catch (error) {
+    console.error("Error fetching URLs from Firestore:", error);
+    // Return default or empty array on error
+    return ['https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml'];
+  }
+}
+
+export async function saveFeedUrls(urls: string[]): Promise<{success: boolean, error?: string}> {
+  try {
+    await setDoc(urlsDocRef, { urls });
+    return { success: true };
+  } catch (error) {
+    console.error("Error saving URLs to Firestore:", error);
+    return { success: false, error: "Could not save URLs. Please check your Firestore security rules and Firebase config." };
   }
 }

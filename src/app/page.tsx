@@ -4,16 +4,18 @@ import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { fetchRssFeed, type RssItem } from './actions';
+import { fetchRssFeed, type RssItem, getFeedUrls, saveFeedUrls } from './actions';
 import { differenceInDays } from 'date-fns';
 import { Rss, Loader2, AlertCircle } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
+import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
-  const [urls, setUrls] = useState('https://cloud.google.com/feeds/gemini-codeassist-release-notes.xml');
+  const [urls, setUrls] = useState('');
   const [items, setItems] = useState<RssItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const handleFetch = useCallback(async (feeds: string) => {
     setIsLoading(true);
@@ -23,7 +25,6 @@ export default function Home() {
     const feedUrls = feeds.split('\n').map(url => url.trim()).filter(Boolean);
 
     if (feedUrls.length === 0) {
-      setError("Please enter at least one RSS feed URL.");
       setIsLoading(false);
       return;
     }
@@ -51,14 +52,36 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Fetch initial URL on mount
-    handleFetch(urls);
-     // eslint-disable-next-line react-hooks/exhaustive-deps
+    async function loadUrlsAndFetch() {
+      const initialUrls = await getFeedUrls();
+      const urlsString = initialUrls.join('\n');
+      setUrls(urlsString);
+      if (urlsString) {
+        await handleFetch(urlsString);
+      } else {
+        setIsLoading(false); // No URLs, so stop loading
+      }
+    }
+    loadUrlsAndFetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleFetch]);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    handleFetch(urls);
+    if (isLoading) return;
+
+    const urlsToSave = urls.split('\n').map(url => url.trim()).filter(Boolean);
+    const result = await saveFeedUrls(urlsToSave);
+
+    if (!result.success && result.error) {
+      toast({
+        variant: "destructive",
+        title: "Error Saving URLs",
+        description: result.error,
+      });
+    }
+
+    await handleFetch(urls);
   };
 
   const { thisWeekItems, lastWeekItems } = useMemo(() => {
@@ -171,7 +194,7 @@ export default function Home() {
             )}
              {items.length === 0 && (
                <div className="text-center py-10">
-                <p className="text-muted-foreground">No items found in this feed. Try another URL.</p>
+                <p className="text-muted-foreground">Enter some RSS feed URLs above to get started.</p>
                </div>
             )}
           </div>
