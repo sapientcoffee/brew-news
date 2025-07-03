@@ -32,7 +32,7 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
     const response = await fetch(url, {
       headers: { 
         'User-Agent': 'BrewNews/1.0',
-        'Accept': 'application/rss+xml, application/xml, text/xml'
+        'Accept': 'application/rss+xml, application/xml, text/xml, application/atom+xml'
       },
       next: { revalidate: 3600 }, // Revalidate every hour
     });
@@ -42,9 +42,17 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
     }
 
     const xmlText = await response.text();
-    const itemBlocks = xmlText.match(/<item>([\s\S]*?)<\/item>/g);
+    
+    const isAtom = xmlText.includes('<feed');
+
+    const itemBlocks = isAtom
+      ? xmlText.match(/<entry>([\s\S]*?)<\/entry>/g)
+      : xmlText.match(/<item>([\s\S]*?)<\/item>/g);
 
     if (!itemBlocks) {
+      if (!isAtom && !xmlText.includes('<rss')) {
+         return { error: 'The content does not appear to be a valid RSS or Atom feed.' };
+      }
       return { data: [] };
     }
 
@@ -56,13 +64,24 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
           title = title.slice(9, -3).trim();
         }
 
-        const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/);
-        const link = linkMatch ? linkMatch[1].trim() : '#';
-
-        const pubDateMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+        let link = '#';
+        if (isAtom) {
+          // For Atom, find link with rel="alternate" or the first link
+          const linkMatch = block.match(/<link[^>]*rel="alternate"[^>]*href="([^"]+)"|<link[^>]*href="([^"]+)"/);
+          link = linkMatch ? (linkMatch[1] || linkMatch[2]).trim() : '#';
+        } else {
+          const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/);
+          link = linkMatch ? linkMatch[1].trim() : '#';
+        }
+        
+        const pubDateMatch = isAtom 
+          ? block.match(/<updated>([\s\S]*?)<\/updated>/)
+          : block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
         const pubDate = pubDateMatch ? pubDateMatch[1].trim() : new Date().toUTCString();
 
-        const descriptionMatch = block.match(/<description>([\s\S]*?)<\/description>/);
+        const descriptionMatch = isAtom
+          ? block.match(/<content[^>]*>([\s\S]*?)<\/content>/)
+          : block.match(/<description>([\s\S]*?)<\/description>/);
         let description = descriptionMatch ? descriptionMatch[1].trim() : 'No description available.';
         if (description.startsWith('<![CDATA[')) {
           description = description.slice(9, -3).trim();
@@ -75,7 +94,7 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
           description: decodeHtmlEntities(description),
         };
       })
-      .filter(item => item.title && item.link);
+      .filter(item => item.title && item.link && item.link !== '#');
 
     return { data: items };
   } catch (err) {
@@ -83,6 +102,6 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
     if (err instanceof TypeError && err.message.includes('fetch failed')) {
         return { error: 'Network error or invalid domain. Please check the URL and your connection.'};
     }
-    return { error: 'An unexpected error occurred while processing the feed. It may not be a valid RSS format.' };
+    return { error: 'An unexpected error occurred while processing the feed. It may not be a valid RSS or Atom format.' };
   }
 }
