@@ -24,13 +24,14 @@ if (firebaseConfig.projectId) {
 
     if (process.env.NODE_ENV === 'development') {
       try {
-        // These will throw errors if the emulators are already connected during hot-reloads.
-        // We can safely ignore these errors.
-        connectAuthEmulator(auth, 'http://localhost:9099');
-        connectFirestoreEmulator(db, 'localhost', 8080);
+        // These will throw 'failed-precondition' errors on hot-reloads if already connected.
+        // We can safely ignore these. The connection will persist.
+        // Use 127.0.0.1 to avoid potential DNS/network resolution issues with 'localhost'.
+        connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+        connectFirestoreEmulator(db, '127.0.0.1', 8080);
       } catch (error: any) {
-        const knownErrors = ['failed-precondition', 'auth/emulator-config-failed'];
-        if (!knownErrors.includes(error.code)) {
+        // Ignore the 'failed-precondition' error which is thrown when the emulators are already running.
+        if (error.code !== 'failed-precondition') {
           console.error("Error connecting to Firebase emulators:", error);
         }
       }
