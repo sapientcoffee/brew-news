@@ -1,28 +1,27 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { fetchRssFeed, type RssItem, getFeedUrls, saveFeedUrls } from './actions';
+import { fetchRssFeed, type RssItem, getFeedUrls } from './actions';
 import { differenceInDays } from 'date-fns';
-import { Rss, Loader2, AlertCircle } from 'lucide-react';
+import { Rss, Loader2, AlertCircle, Settings } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
-import { useToast } from "@/hooks/use-toast";
+import Link from 'next/link';
 
 export default function Home() {
-  const [urls, setUrls] = useState('');
   const [items, setItems] = useState<RssItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
+  const [hasUrls, setHasUrls] = useState(false);
 
-  const handleFetch = useCallback(async (feeds: string) => {
+  const handleFetch = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     setItems([]);
 
-    const feedUrls = feeds.split('\n').map(url => url.trim()).filter(Boolean);
+    const feedUrls = await getFeedUrls();
+    setHasUrls(feedUrls.length > 0);
 
     if (feedUrls.length === 0) {
       setIsLoading(false);
@@ -52,37 +51,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    async function loadUrlsAndFetch() {
-      const initialUrls = await getFeedUrls();
-      const urlsString = initialUrls.join('\n');
-      setUrls(urlsString);
-      if (urlsString) {
-        await handleFetch(urlsString);
-      } else {
-        setIsLoading(false); // No URLs, so stop loading
-      }
-    }
-    loadUrlsAndFetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    handleFetch();
   }, [handleFetch]);
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (isLoading) return;
-
-    const urlsToSave = urls.split('\n').map(url => url.trim()).filter(Boolean);
-    const result = await saveFeedUrls(urlsToSave);
-
-    if (!result.success && result.error) {
-      toast({
-        variant: "destructive",
-        title: "Error Saving URLs",
-        description: result.error,
-      });
-    }
-
-    await handleFetch(urls);
-  };
 
   const { thisWeekItems, lastWeekItems } = useMemo(() => {
     const now = new Date();
@@ -117,40 +87,26 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground font-body">
       <main className="container mx-auto px-4 py-8 md:py-12">
-        <header className="text-center mb-12">
-          <div className="inline-flex items-center gap-4">
-            <Rss className="h-12 w-12 text-primary" />
-            <h1 className="text-5xl font-bold font-headline text-primary">
-              Brew News
-            </h1>
-          </div>
-          <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
-            Your daily brew of release notes. Enter one or more RSS feed URLs to get the latest updates.
-          </p>
+        <header className="flex justify-between items-start mb-12">
+            <div className="text-left">
+              <div className="inline-flex items-center gap-4">
+                <Rss className="h-12 w-12 text-primary" />
+                <h1 className="text-5xl font-bold font-headline text-primary">
+                  Brew News
+                </h1>
+              </div>
+              <p className="mt-4 text-lg text-muted-foreground max-w-2xl">
+                Your daily brew of release notes from your favorite feeds.
+              </p>
+            </div>
+            <Button asChild variant="outline">
+              <Link href="/admin">
+                <Settings className="mr-2" />
+                Manage Feeds
+              </Link>
+            </Button>
         </header>
 
-        <form onSubmit={handleSubmit} className="max-w-2xl mx-auto mb-12">
-          <div className="grid w-full gap-4">
-            <Textarea
-              placeholder="Enter one or more RSS feed URLs, one per line..."
-              value={urls}
-              onChange={(e) => setUrls(e.target.value)}
-              className="flex-grow bg-card/80 border-primary/30 focus:border-accent focus:ring-accent min-h-[100px]"
-              disabled={isLoading}
-              aria-label="RSS Feed URLs"
-            />
-            <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground justify-self-end" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Fetching...
-                </>
-              ) : (
-                'Get Updates'
-              )}
-            </Button>
-          </div>
-        </form>
 
         {isLoading && (
           <div className="text-center py-10">
@@ -160,9 +116,9 @@ export default function Home() {
         )}
 
         {error && (
-          <Alert variant="destructive" className="max-w-2xl mx-auto">
+          <Alert variant="destructive" className="max-w-4xl mx-auto">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
+            <AlertTitle>Error Fetching Feeds</AlertTitle>
             <AlertDescription className="whitespace-pre-wrap">{error}</AlertDescription>
           </Alert>
         )}
@@ -192,9 +148,16 @@ export default function Home() {
                 <p className="text-muted-foreground">No new updates from the last two weeks.</p>
                </div>
             )}
-             {items.length === 0 && (
-               <div className="text-center py-10">
-                <p className="text-muted-foreground">Enter some RSS feed URLs above to get started.</p>
+             {!isLoading && !hasUrls && (
+               <div className="text-center py-10 border border-dashed rounded-lg">
+                <h3 className="text-lg font-semibold text-primary">Welcome to Brew News!</h3>
+                <p className="text-muted-foreground mt-2 mb-4">You haven't added any RSS feeds yet.</p>
+                <Button asChild className="bg-accent hover:bg-accent/90 text-accent-foreground">
+                    <Link href="/admin">
+                        <Settings className="mr-2"/>
+                        Go to Admin to add feeds
+                    </Link>
+                </Button>
                </div>
             )}
           </div>
