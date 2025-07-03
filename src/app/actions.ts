@@ -100,19 +100,10 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
       })
       .filter(item => item.title && item.link && item.link !== '#');
 
-    const summaryPromises = items.map(item =>
-        summarizeReleaseNote({ htmlContent: item.description })
-            .then(result => {
-                if (result && result.summary) {
-                    item.summary = result.summary;
-                }
-            })
-            .catch(err => {
-                console.error(`Could not summarize item: ${item.title}`, err);
-                const stripped = item.description.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
-                item.summary = [stripped.length > 250 ? stripped.substring(0, 250) + '...' : stripped];
-            })
-    );
+    const summaryPromises = items.map(async (item) => {
+      const result = await summarizeReleaseNote({ htmlContent: item.description });
+      item.summary = result.summary;
+    });
 
     await Promise.all(summaryPromises);
 

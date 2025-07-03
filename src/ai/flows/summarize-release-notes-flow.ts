@@ -63,13 +63,24 @@ const summarizeReleaseNoteFlow = ai.defineFlow(
     outputSchema: SummarizeReleaseNoteOutputSchema,
   },
   async input => {
-    // If content is very short or doesn't seem to contain HTML, just return it as is.
     const strippedText = input.htmlContent.replace(/<[^>]*>?/gm, '').trim();
+    // If content is very short or doesn't seem to contain HTML, just return it as is.
     if (strippedText.length < 50) {
-        return { summary: [strippedText] };
+      return { summary: [strippedText] };
     }
-    
-    const {output} = await prompt(input);
-    return output!;
+
+    try {
+      const { output } = await prompt(input);
+      // Ensure output and summary are valid before returning
+      if (output?.summary && output.summary.length > 0) {
+        return output;
+      }
+    } catch (e) {
+      console.error("Error calling summarize prompt, falling back to stripped text.", e);
+    }
+
+    // Fallback to a simple summary if the prompt fails or returns empty/invalid data
+    const fallbackSummary = strippedText.length > 250 ? strippedText.substring(0, 250) + '...' : strippedText;
+    return { summary: [fallbackSummary] };
   }
 );
