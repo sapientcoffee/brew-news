@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getFirestore, type Firestore } from "firebase/firestore";
-import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, connectFirestoreEmulator, type Firestore } from "firebase/firestore";
+import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -21,6 +21,20 @@ if (firebaseConfig.projectId) {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
+
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        // These will throw errors if the emulators are already connected during hot-reloads.
+        // We can safely ignore these errors.
+        connectAuthEmulator(auth, 'http://localhost:9099');
+        connectFirestoreEmulator(db, 'localhost', 8080);
+      } catch (error: any) {
+        const knownErrors = ['failed-precondition', 'auth/emulator-config-failed'];
+        if (!knownErrors.includes(error.code)) {
+          console.error("Error connecting to Firebase emulators:", error);
+        }
+      }
+    }
   } catch (e) {
     console.error("Firebase initialization failed:", e);
     // Set to null if initialization fails for any reason
