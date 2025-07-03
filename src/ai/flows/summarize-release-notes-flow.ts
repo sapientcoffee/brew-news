@@ -28,13 +28,30 @@ const prompt = ai.definePrompt({
   name: 'summarizeReleaseNotePrompt',
   input: {schema: SummarizeReleaseNoteInputSchema},
   output: {schema: SummarizeReleaseNoteOutputSchema},
-  prompt: `You are an expert at parsing HTML release notes and extracting the key updates.
-From the following HTML, extract the main features, fixes, or announcements.
-For each point, prepend it with [FEATURE], [FIXED], [ANNOUNCEMENT], or [CHANGED] based on the heading in the HTML.
-If there's a main point in a <p> tag right after a <h3> tag, use that.
-Focus on the most important, user-facing changes. Omit any extra marketing language.
+  prompt: `You are an expert at parsing HTML release notes to create a bulleted summary.
+From the provided HTML content, find every \`<h3>\` tag.
+For each \`<h3>\` tag you find:
+1. Get the text inside the \`<h3>\` tag (like "Feature" or "Fixed").
+2. Get the text from ONLY the first \`<p>\` tag that comes immediately after the \`<h3>\`. Ignore any images or subsequent paragraphs.
+3. Create a summary string in the format: "[UPPERCASE_HEADING] Text_from_the_paragraph."
+Collect all these summary strings into a list.
 
-HTML Content:
+Example Input HTML:
+<h3>Feature</h3>
+<p>This is the new feature description.</p>
+<p>This is extra marketing text that should be ignored.</p>
+<h3>Fixed</h3>
+<p>A bug was fixed.</p>
+
+Example Output JSON:
+{
+  "summary": [
+    "[FEATURE] This is the new feature description.",
+    "[FIXED] A bug was fixed."
+  ]
+}
+
+HTML Content to process:
 {{{htmlContent}}}
 `,
 });
