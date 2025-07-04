@@ -5,3 +5,14 @@ runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
   maxInstances: 1
+
+# Environment variables and secrets
+env:
+  - variable: GEMINI_API_KEY
+    projects/brew-news-dgvw4/secrets/GEMINI_API_KEY
+
+  - variable: NEXT_PUBLIC_STORAGE_BUCKET
+    value: brew-news-dgvw4.firebasestorage.app
+    availability:
+    -   BUILD
+    -   RUNTIME

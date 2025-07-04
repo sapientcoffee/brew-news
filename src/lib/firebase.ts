@@ -20,6 +20,7 @@ if (firebaseConfig.projectId) {
   try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     auth = getAuth(app);
+    initializeApp(firebaseConfig);
 
     // Initialize Firestore. We need to do this differently for dev vs. prod
     // to support the emulator's proxied URL in Firebase Studio.
