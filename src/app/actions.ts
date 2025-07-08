@@ -1,21 +1,32 @@
 'use server';
 
+import { addLog } from './logActions';
 import { z } from 'zod';
+import { isThisMonth, isSameMonth, subMonths } from 'date-fns';
 import { summarizeReleaseNote } from '@/ai/flows/summarize-release-notes-flow';
+import { complexScrapeFlow } from '@/ai/flows/complex-scrape-flow';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 
-export interface RssItem {
+// Discriminated union for different source types
+export type Source =
+  | { type: 'rss'; url: string }
+  | { type: 'webpage'; url: string };
+
+export interface FeedItem {
   title: string;
   link: string;
   description: string;
   pubDate: string;
   summary?: string[];
+  product?: string;
+  subcomponent?: string;
+  category?: string;
 }
 
 const urlSchema = z.string().url({ message: 'Please enter a valid URL.' });
 
-function decodeHtmlEntities(text: string): string {
+export function decodeHtmlEntities(text: string): string {
   // This is a basic decoder and might not cover all cases.
   return text
     .replace(/&lt;/g, '<')
@@ -26,10 +37,62 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#39;/g, "'");
 }
 
-export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; error?: string }> {
+export async function fetchSource(source: Source): Promise<{ data?: FeedItem[]; error?: string }> {
+  if (source.type === 'rss') {
+    return fetchRssFeed(source.url);
+  }
+  if (source.type === 'webpage') {
+    return fetchWebpage(source.url);
+  }
+  return { error: 'Unsupported source type' };
+}
+
+export async function fetchWebpage(url: string): Promise<{ data?: FeedItem[]; error?: string }> {
+  await addLog({ level: 'info', message: `Attempting to scrape webpage with complex Genkit flow: ${url}` });
+  try {
+    const result = await complexScrapeFlow({ url });
+    const items = result.items.map(item => ({
+      ...item,
+      summary: item.summary && item.summary.length > 0 ? item.summary : [item.description],
+    }));
+    
+    const now = new Date();
+    const lastMonthDate = subMonths(now, 1);
+    const displayableItems = items.filter(item => {
+      try {
+        const itemDate = new Date(item.pubDate);
+        if (isNaN(itemDate.getTime())) return false;
+        return isThisMonth(itemDate) || isSameMonth(itemDate, lastMonthDate);
+      } catch {
+        return false;
+      }
+    });
+
+    await addLog({ 
+      level: 'info', 
+      message: `From ${url}, ${displayableItems.length} items will be displayed.`,
+      details: {
+        displayed: displayableItems.length,
+        notDisplayed: items.length - displayableItems.length,
+        total: items.length,
+      }
+    });
+    
+    await addLog({ level: 'info', message: `Genkit scraped ${items.length} items from: ${url}` });
+    return { data: displayableItems };
+  } catch (error: any) {
+    await addLog({ level: 'error', message: `Failed to scrape webpage with complex Genkit flow: ${url}`, details: { error: error.stack } });
+    return { error: 'Failed to process webpage with complex Genkit flow.' };
+  }
+}
+
+export async function fetchRssFeed(url: string): Promise<{ data?: FeedItem[]; error?: string }> {
+  await addLog({ level: 'info', message: `Attempting to fetch RSS feed: ${url}` });
   const validation = urlSchema.safeParse(url);
   if (!validation.success) {
-    return { error: validation.error.errors[0].message };
+    const error = validation.error.errors[0].message;
+    await addLog({ level: 'error', message: `Invalid URL for RSS feed: ${url}`, details: { error } });
+    return { error };
   }
 
   try {
@@ -42,7 +105,9 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
     });
 
     if (!response.ok) {
-      return { error: `Failed to fetch feed. Server responded with status: ${response.status}` };
+      const error = `Failed to fetch feed. Server responded with status: ${response.status}`;
+      await addLog({ level: 'error', message: `HTTP error for RSS feed: ${url}`, details: { status: response.status } });
+      return { error };
     }
 
     const xmlText = await response.text();
@@ -55,30 +120,24 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
 
     if (!itemBlocks) {
       if (!isAtom && !xmlText.includes('<rss')) {
-         return { error: 'The content does not appear to be a valid RSS or Atom feed.' };
+         const error = 'The content does not appear to be a valid RSS or Atom feed.';
+         await addLog({ level: 'warning', message: `Invalid feed format for URL: ${url}`, details: { content: xmlText.substring(0, 500) } });
+         return { error };
       }
+      await addLog({ level: 'info', message: `No items found in RSS feed: ${url}` });
       return { data: [] };
     }
 
-    const items: RssItem[] = itemBlocks
-      .map(block => {
-        const titleMatch = block.match(/<title>([\s\S]*?)<\/title>/);
-        let title = titleMatch ? titleMatch[1].trim() : '';
-        if (title.startsWith('<![CDATA[')) {
-          title = title.slice(9, -3).trim();
-        }
+    const processedItems: FeedItem[] = itemBlocks.flatMap(block => {
+        const entryTitleMatch = block.match(/<title>([\s\S]*?)<\/title>/);
+        const entryTitle = entryTitleMatch ? entryTitleMatch[1].trim() : '';
 
-        let link = '#';
-        if (isAtom) {
-          // For Atom, find link with rel="alternate" or the first link
-          const linkMatch = block.match(/<link[^>]*rel="alternate"[^>]*href="([^"]+)"|<link[^>]*href="([^"]+)"/);
-          link = linkMatch ? (linkMatch[1] || linkMatch[2]).trim() : '#';
-        } else {
-          const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/);
-          link = linkMatch ? linkMatch[1].trim() : '#';
-        }
-        
-        const pubDateMatch = isAtom 
+        const linkMatch = isAtom
+          ? block.match(/<link[^>]*rel="alternate"[^>]*href="([^"]+)"|<link[^>]*href="([^"]+)"/)
+          : block.match(/<link>([\s\S]*?)<\/link>/);
+        const link = linkMatch ? (isAtom ? (linkMatch[1] || linkMatch[2]).trim() : linkMatch[1].trim()) : '#';
+
+        const pubDateMatch = isAtom
           ? block.match(/<updated>([\s\S]*?)<\/updated>/)
           : block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
         const pubDate = pubDateMatch ? pubDateMatch[1].trim() : new Date().toUTCString();
@@ -91,72 +150,123 @@ export async function fetchRssFeed(url: string): Promise<{ data?: RssItem[]; err
           description = description.slice(9, -3).trim();
         }
 
+        // If the description contains <h3> tags, split it into multiple items
+        if (description.includes('<h3>')) {
+            const subItems = description.split('<h3>').slice(1); // Remove the part before the first <h3>
+            return subItems.map((subItem, index) => {
+                const subTitle = subItem.match(/([\s\S]*?)<\/h3>/);
+                const subDescription = '<h3>' + subItem;
+                return {
+                    title: subTitle ? decodeHtmlEntities(subTitle[1].trim()) : decodeHtmlEntities(entryTitle),
+                    link: `${link}-${index}`,
+                    pubDate,
+                    description: decodeHtmlEntities(subDescription),
+                };
+            });
+        }
+
         return {
-          title: decodeHtmlEntities(title),
+          title: decodeHtmlEntities(entryTitle),
           link,
           pubDate,
           description: decodeHtmlEntities(description),
         };
-      })
-      .filter(item => item.title && item.link && item.link !== '#');
+    });
 
-    const summaryPromises = items.map(async (item) => {
-      const result = await summarizeReleaseNote({ htmlContent: item.description });
-      item.summary = result.summary;
+    const totalItemsFound = processedItems.length;
+    await addLog({ level: 'info', message: `Discovered ${totalItemsFound} potential items in feed: ${url}` });
+
+    const validItems = processedItems.filter(item => item.title && item.link && item.link !== '#');
+    const invalidItemsCount = processedItems.length - validItems.length;
+
+    const now = new Date();
+    const lastMonthDate = subMonths(now, 1);
+    const displayableItems = validItems.filter(item => {
+      try {
+        const itemDate = new Date(item.pubDate);
+        if (isNaN(itemDate.getTime())) return false;
+        return isThisMonth(itemDate) || isSameMonth(itemDate, lastMonthDate);
+      } catch {
+        return false;
+      }
+    });
+
+    await addLog({ 
+      level: 'info', 
+      message: `From ${url}, ${displayableItems.length} items will be displayed.`,
+      details: {
+        displayed: displayableItems.length,
+        notDisplayed: totalItemsFound - displayableItems.length,
+        total: totalItemsFound,
+      }
+    });
+
+    const summaryPromises = displayableItems.map(async (item) => {
+      try {
+        const result = await summarizeReleaseNote({ htmlContent: item.description });
+        item.summary = result.summary;
+        item.product = result.product;
+        item.subcomponent = result.subcomponent;
+        // The title and pubDate from the summarization are more accurate
+        // as they are extracted from the content itself.
+        item.title = result.title;
+        item.pubDate = result.pubDate;
+      } catch (e: any) {
+        await addLog({ level: 'error', message: `Summarization failed for item in ${url}`, details: { itemTitle: item.title, error: e.message } });
+        item.summary = ['Error summarizing content.'];
+      }
     });
 
     await Promise.all(summaryPromises);
 
-    return { data: items };
-  } catch (err) {
+    await addLog({ level: 'info', message: `Successfully processed and summarized RSS feed: ${url}` });
+    return { data: displayableItems };
+  } catch (err: any) {
     console.error('Fetch RSS Error:', err);
-    if (err instanceof TypeError && err.message.includes('fetch failed')) {
-        return { error: 'Network error or invalid domain. Please check the URL and your connection.'};
-    }
-    return { error: 'An unexpected error occurred while processing the feed. It may not be a valid RSS or Atom format.' };
+    const errorMessage = (err instanceof TypeError && err.message.includes('fetch failed'))
+      ? 'Network error or invalid domain. Please check the URL and your connection.'
+      : 'An unexpected error occurred while processing the feed. It may not be a valid RSS or Atom format.';
+    
+    await addLog({ level: 'error', message: `General error processing RSS feed: ${url}`, details: { error: err.message, finalMessage: errorMessage } });
+    return { error: errorMessage };
   }
 }
 
-export async function getFeedUrls(): Promise<string[]> {
+export async function getSources(): Promise<Source[]> {
   if (!db) {
-    // If Firestore isn't configured, there are no URLs.
     return [];
   }
-  const urlsDocRef = doc(db, 'feeds', 'default');
+  const sourcesDocRef = doc(db, 'sources', 'default');
   try {
-    const docSnap = await getDoc(urlsDocRef);
+    const docSnap = await getDoc(sourcesDocRef);
     if (docSnap.exists()) {
       const data = docSnap.data();
-      // Ensure it returns an array, even if it's empty
-      return Array.isArray(data.urls) ? data.urls : [];
+      return Array.isArray(data.sources) ? data.sources : [];
     }
-    // If the document doesn't exist, there are no URLs.
     return [];
   } catch (error) {
-    console.error("Error fetching URLs from Firestore:", error);
-    // Return empty array on error
+    console.error("Error fetching sources from Firestore:", error);
     return [];
   }
 }
 
-export async function saveFeedUrls(urls: string[]): Promise<{success: boolean, error?: string}> {
+export async function saveSources(sources: Source[]): Promise<{success: boolean, error?: string}> {
   if (!db) {
-    return { success: false, error: "Firestore is not configured. Please add your Firebase credentials to the .env file." };
+    return { success: false, error: "Firestore is not configured." };
   }
-  const urlsDocRef = doc(db, 'feeds', 'default');
+  const sourcesDocRef = doc(db, 'sources', 'default');
   try {
-    await setDoc(urlsDocRef, { urls });
+    const sourcesToStore = sources.map(source => ({ ...source }));
+    await setDoc(sourcesDocRef, { sources: sourcesToStore });
     return { success: true };
   } catch (error) {
-    console.error("Error saving URLs to Firestore:", error);
-    return { success: false, error: "Could not save URLs. Please check your Firestore security rules and Firebase config." };
+    console.error("Error saving sources to Firestore:", error);
+    return { success: false, error: "Could not save sources." };
   }
 }
 
-export async function getStoredFeedItems(): Promise<{ data?: RssItem[]; error?: string }> {
+export async function getStoredFeedItems(): Promise<{ data?: FeedItem[]; error?: string }> {
   if (!db) {
-    // If firestore is not configured, return empty data.
-    // The app will then proceed to fetch live data.
     return { data: [] };
   }
   try {
@@ -165,32 +275,27 @@ export async function getStoredFeedItems(): Promise<{ data?: RssItem[]; error?: 
     if (snapshot.empty) {
       return { data: [] };
     }
-    const items: RssItem[] = snapshot.docs.map(doc => doc.data() as RssItem);
+    const items: FeedItem[] = snapshot.docs.map(doc => doc.data() as FeedItem);
     return { data: items };
   } catch (error) {
     console.error("Error fetching stored items from Firestore:", error);
-    return { error: "Could not retrieve stored feed items. Please check your Firestore security rules." };
+    return { error: "Could not retrieve stored feed items." };
   }
 }
 
-export async function storeFeedItems(items: RssItem[]): Promise<{success: boolean, error?: string}> {
+export async function storeFeedItems(items: FeedItem[]): Promise<{success: boolean, error?: string}> {
   if (!db) {
-    // Silently fail if firestore is not configured.
-    // This allows the app to function without persistence.
     return { success: true };
   }
   const itemsCollection = collection(db, 'feedItems');
   try {
-    // Clear the existing items
     const oldDocsSnapshot = await getDocs(itemsCollection);
     const deleteBatch = writeBatch(db);
     oldDocsSnapshot.docs.forEach(doc => deleteBatch.delete(doc.ref));
     await deleteBatch.commit();
     
-    // Write the new items
     const addBatch = writeBatch(db);
     items.forEach(item => {
-      // Use a URL-safe base64 encoding of the link as the document ID
       const docId = Buffer.from(item.link).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
       const docRef = doc(itemsCollection, docId);
       addBatch.set(docRef, item);
