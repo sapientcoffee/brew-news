@@ -31,6 +31,10 @@ export default function LoginPage() {
   }
 
   const handleGoogleSignIn = async () => {
+    if (!auth || !db) {
+      toast({ variant: 'destructive', title: 'Configuration Error', description: 'Firebase is not properly configured.' });
+      return;
+    }
     const provider = new GoogleAuthProvider();
     setIsSubmitting(true);
     try {

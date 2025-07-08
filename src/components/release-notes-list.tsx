@@ -1,9 +1,9 @@
-import type { RssItem } from '@/app/actions';
+import type { FeedItem } from '@/app/actions';
 import { ReleaseNoteCard } from './release-note-card';
 
 type ReleaseNotesListProps = {
   title: string;
-  items: RssItem[];
+  items: FeedItem[];
 };
 
 export function ReleaseNotesList({ title, items }: ReleaseNotesListProps) {

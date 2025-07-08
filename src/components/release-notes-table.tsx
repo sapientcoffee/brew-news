@@ -1,4 +1,4 @@
-import type { RssItem } from '@/app/actions';
+import type { FeedItem } from '@/app/actions';
 import {
   Table,
   TableBody,
@@ -13,11 +13,11 @@ import { format } from 'date-fns';
 import { LinkIcon } from 'lucide-react';
 
 type ReleaseNotesTableProps = {
-  items: RssItem[];
+  items: FeedItem[];
 };
 
 function parseSummary(summary: string) {
-  const match = summary.match(/^\[(.*?)]\s*(.*)/);
+  const match = summary.match(/^\\[(.*?)]\\s*(.*)/);
   if (match) {
     const type = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
     let badgeVariant: "default" | "secondary" | "destructive" | "outline" = "outline";
@@ -60,6 +60,8 @@ export function ReleaseNotesTable({ items }: ReleaseNotesTableProps) {
         <TableHeader>
           <TableRow className="border-primary/20 hover:bg-card">
             <TableHead className="w-[120px] font-bold text-foreground">Date</TableHead>
+            <TableHead className="font-bold text-foreground">Product</TableHead>
+            <TableHead className="font-bold text-foreground">Subcomponent</TableHead>
             <TableHead className="font-bold text-foreground">Release</TableHead>
             <TableHead className="font-bold text-foreground">Updates</TableHead>
           </TableRow>
@@ -83,6 +85,8 @@ export function ReleaseNotesTable({ items }: ReleaseNotesTableProps) {
                 <TableCell className="font-medium text-muted-foreground align-top pt-4">
                   {publicationDate ? format(publicationDate, 'MMM d, yyyy') : 'N/A'}
                 </TableCell>
+                <TableCell className="font-medium text-muted-foreground align-top pt-4">{item.product || 'N/A'}</TableCell>
+                <TableCell className="font-medium text-muted-foreground align-top pt-4">{item.subcomponent || 'N/A'}</TableCell>
                 <TableCell className="font-headline align-top pt-4">
                   <Link href={item.link} target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors">
                     {item.title}

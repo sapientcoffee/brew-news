@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getFirestore, initializeFirestore, type Firestore } from "firebase/firestore";
+import { getFirestore, connectFirestoreEmulator, type Firestore } from "firebase/firestore";
 import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -20,39 +20,20 @@ if (firebaseConfig.projectId) {
   try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     auth = getAuth(app);
-
-    // Initialize Firestore. We need to do this differently for dev vs. prod
-    // to support the emulator's proxied URL in Firebase Studio.
-    try {
-        if (process.env.NODE_ENV === 'development') {
-            const firestoreHost = "8080-firebase-new-prototype-1751567115953.cluster-2xfkbshw5rfguuk5qupw267afs.cloudworkstations.dev";
-            // Use initializeFirestore to connect to the emulator with a custom URL.
-            // connectFirestoreEmulator is not suitable for this.
-            db = initializeFirestore(app, {
-                host: firestoreHost,
-                ssl: true,
-                experimentalForceLongPolling: true,
-            });
-        } else {
-            db = getFirestore(app);
-        }
-    } catch(e: any) {
-        // This can happen on hot-reload if firestore is already initialized.
-        if (e.code === 'failed-precondition' || e.code === 'invalid-argument') {
-            db = getFirestore(app);
-        } else {
-            throw e;
-        }
-    }
+    db = getFirestore(app);
     
-    // Connect Auth emulator in dev mode
+    // Connect to emulators in dev mode
     if (process.env.NODE_ENV === 'development') {
       try {
-        connectAuthEmulator(auth, 'https://9099-firebase-new-prototype-1751567115953.cluster-2xfkbshw5rfguuk5qupw267afs.cloudworkstations.dev');
+        // The SDK handles subsequent connections, so we don't need to worry about HMR.
+        connectFirestoreEmulator(db, 'localhost', 8080);
+  connectAuthEmulator(auth, 'http://localhost:9099', {
+    disableWarnings: true,
+  });
       } catch (error: any) {
-        // Ignore the 'failed-precondition' error which is thrown when the emulators are already running.
+        // The SDK throws 'failed-precondition' if it's already connected. We can safely ignore that.
         if (error.code !== 'failed-precondition') {
-          console.error("Error connecting to Auth emulator:", error);
+          console.error("Error connecting to Firebase emulators:", error);
         }
       }
     }

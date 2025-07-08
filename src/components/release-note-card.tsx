@@ -1,4 +1,4 @@
-import type { RssItem } from '@/app/actions';
+import type { FeedItem } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Link as LinkIcon } from 'lucide-react';
@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 
 type ReleaseNoteCardProps = {
-  item: RssItem;
+  item: FeedItem;
 };
 
 export function ReleaseNoteCard({ item }: ReleaseNoteCardProps) {

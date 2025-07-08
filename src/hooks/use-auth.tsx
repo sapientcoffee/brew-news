@@ -30,15 +30,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUser(user);
-        const userDocRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(userDocRef);
-        if (docSnap.exists()) {
-          setRole(docSnap.data().role);
-        } else {
-          // This case is handled by Google Sign-In and Sign-Up flows
-          // It's a fallback in case a user is authenticated but doesn't have a db record.
-          await setDoc(userDocRef, { role: 'viewer', email: user.email });
-          setRole('viewer');
+        if (db) {
+          const userDocRef = doc(db, 'users', user.uid);
+          const docSnap = await getDoc(userDocRef);
+          if (docSnap.exists()) {
+            setRole(docSnap.data().role);
+          } else {
+            // This case is handled by Google Sign-In and Sign-Up flows
+            // It's a fallback in case a user is authenticated but doesn't have a db record.
+            await setDoc(userDocRef, { role: 'viewer', email: user.email });
+            setRole('viewer');
+          }
         }
       } else {
         setUser(null);

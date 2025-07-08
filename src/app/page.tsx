@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { fetchRssFeed, type RssItem, getFeedUrls, getStoredFeedItems, storeFeedItems } from './actions';
-import { differenceInDays } from 'date-fns';
+import { fetchRssFeed, fetchWebpage, type FeedItem, getSources, getStoredFeedItems, storeFeedItems, Source } from './actions';
+import { isThisMonth, isSameMonth, subMonths, differenceInDays } from 'date-fns';
 import { Rss, Loader2, AlertCircle, Settings, RefreshCw, LogOut } from 'lucide-react';
 import { ReleaseNotesTable } from '@/components/release-notes-table';
 import Link from 'next/link';
@@ -12,10 +12,10 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 
 export default function Home() {
-  const [items, setItems] = useState<RssItem[]>([]);
+  const [items, setItems] = useState<FeedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasUrls, setHasUrls] = useState(false);
+  const [hasSources, setHasSources] = useState(false);
 
   const auth = useAuth();
   const router = useRouter();
@@ -24,10 +24,10 @@ export default function Home() {
     setIsLoading(true);
     setError(null);
     
-    const feedUrls = await getFeedUrls();
-    setHasUrls(feedUrls.length > 0);
+    const sources = await getSources();
+    setHasSources(sources.length > 0);
 
-    if (feedUrls.length === 0) {
+    if (sources.length === 0) {
       setItems([]);
       setIsLoading(false);
       return;
@@ -45,10 +45,18 @@ export default function Home() {
       }
     }
 
-    // If not loading from the database, or if the database was empty, fetch fresh data from all feeds.
-    const results = await Promise.all(feedUrls.map(url => fetchRssFeed(url)));
+    const fetchPromises = sources.map(source => {
+      switch (source.type) {
+        case 'rss':
+          return fetchRssFeed(source.url);
+        case 'webpage':
+          return fetchWebpage(source.url);
+      }
+    });
+
+    const results = await Promise.all(fetchPromises);
     
-    const allItems: RssItem[] = [];
+    const allItems: FeedItem[] = [];
     const allErrors: string[] = [];
 
     results.forEach((result, index) => {
@@ -56,7 +64,7 @@ export default function Home() {
         allItems.push(...result.data);
       }
       if (result.error) {
-        allErrors.push(`Feed "${feedUrls[index]}": ${result.error}`);
+        allErrors.push(`Source "${sources[index].url}": ${result.error}`);
       }
     });
     
@@ -64,7 +72,6 @@ export default function Home() {
       setError(allErrors.join('\n'));
     }
 
-    // Set UI with all fresh items, and then update the database
     setItems(allItems);
 
     const now = new Date();
@@ -98,10 +105,11 @@ export default function Home() {
   }, [auth.user, loadFeeds]);
 
 
-  const { thisWeekItems, lastWeekItems } = (() => {
+  const { thisMonthItems, lastMonthItems } = (() => {
     const now = new Date();
-    const thisWeek: RssItem[] = [];
-    const lastWeek: RssItem[] = [];
+    const lastMonthDate = subMonths(now, 1);
+    const thisMonth: FeedItem[] = [];
+    const lastMonth: FeedItem[] = [];
 
     items.forEach(item => {
       if (!item.pubDate) return;
@@ -109,23 +117,21 @@ export default function Home() {
         const itemDate = new Date(item.pubDate);
         if (isNaN(itemDate.getTime())) return;
 
-        const daysAgo = differenceInDays(now, itemDate);
-        if (daysAgo >= 0 && daysAgo <= 7) {
-          thisWeek.push(item);
-        } else if (daysAgo > 7 && daysAgo <= 14) {
-          lastWeek.push(item);
+        if (isThisMonth(itemDate)) {
+          thisMonth.push(item);
+        } else if (isSameMonth(itemDate, lastMonthDate)) {
+          lastMonth.push(item);
         }
       } catch (e) {
         // Ignore items with invalid dates
       }
     });
 
-    // Sort by date, newest first
-    const sortByDate = (a: RssItem, b: RssItem) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
-    thisWeek.sort(sortByDate);
-    lastWeek.sort(sortByDate);
+    const sortByDate = (a: FeedItem, b: FeedItem) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+    thisMonth.sort(sortByDate);
+    lastMonth.sort(sortByDate);
 
-    return { thisWeekItems: thisWeek, lastWeekItems: lastWeek };
+    return { thisMonthItems: thisMonth, lastMonthItems: lastMonth };
   })();
 
   if (auth.loading || !auth.user) {
@@ -148,7 +154,7 @@ export default function Home() {
                 </h1>
               </div>
               <p className="mt-4 text-lg text-muted-foreground max-w-2xl">
-                Your daily brew of release notes from your favorite feeds.
+                Your daily brew of release notes from your favorite sources.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -160,7 +166,7 @@ export default function Home() {
                 <Button asChild variant="outline">
                   <Link href="/admin">
                     <Settings className="mr-2" />
-                    Manage Feeds
+                    Manage Sources
                   </Link>
                 </Button>
               )}
@@ -189,37 +195,37 @@ export default function Home() {
 
         {!isLoading && !error && (
           <div className="animate-in fade-in-50 duration-500 space-y-12">
-            {thisWeekItems.length > 0 && (
+            {thisMonthItems.length > 0 && (
               <section>
                 <h2 className="text-3xl font-headline font-bold text-primary mb-6 border-b-2 border-accent/50 pb-2">
-                  This Week
+                  This Month
                 </h2>
-                <ReleaseNotesTable items={thisWeekItems} />
+                <ReleaseNotesTable items={thisMonthItems} />
               </section>
             )}
 
-            {lastWeekItems.length > 0 && (
+            {lastMonthItems.length > 0 && (
               <section>
                 <h2 className="text-3xl font-headline font-bold text-primary mb-6 border-b-2 border-accent/50 pb-2">
-                  Last Week
+                  Last Month
                 </h2>
-                <ReleaseNotesTable items={lastWeekItems} />
+                <ReleaseNotesTable items={lastMonthItems} />
               </section>
             )}
             
-            {thisWeekItems.length === 0 && lastWeekItems.length === 0 && items.length > 0 && (
+            {thisMonthItems.length === 0 && lastMonthItems.length === 0 && items.length > 0 && (
                <div className="text-center py-10">
-                <p className="text-muted-foreground">No new updates from the last two weeks.</p>
+                <p className="text-muted-foreground">No new updates from the last two months.</p>
                </div>
             )}
-             {!isLoading && !hasUrls && auth.role === 'admin' && (
+             {!isLoading && !hasSources && auth.role === 'admin' && (
                <div className="text-center py-10 border border-dashed rounded-lg">
                 <h3 className="text-lg font-semibold text-primary">Welcome to Brew News!</h3>
-                <p className="text-muted-foreground mt-2 mb-4">You haven't added any RSS feeds yet.</p>
+                <p className="text-muted-foreground mt-2 mb-4">You haven't added any sources yet.</p>
                 <Button asChild className="bg-accent hover:bg-accent/90 text-accent-foreground">
                     <Link href="/admin">
                         <Settings className="mr-2"/>
-                        Go to Admin to add feeds
+                        Go to Admin to add sources
                     </Link>
                 </Button>
                </div>
